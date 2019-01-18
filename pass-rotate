@@ -19,6 +19,7 @@ from configparser import ConfigParser
 from docopt import docopt
 import traceback
 import subprocess
+import getpass
 import sys
 import os
 from getpass import getpass
@@ -55,11 +56,12 @@ if os.environ.get("XDG_CONFIG_HOME"):
     xdg_config_location = os.path.join(os.environ.get("XDG_CONFIG_HOME"), "pass-rotate.ini")
 else:
     xdg_config_location = None
+
 cfg_path = args.get("--config") or xdg_config_location or os.path.expanduser("~/.config/pass-rotate.ini")
 try:
     with open(cfg_path) as f:
         config = ConfigParser()
-        config.readfp(f)
+        config.read_file(f)
 except Exception as ex:
     sys.stderr.write(str(ex))
     sys.stderr.write("\nFailed to read config file.\n")
@@ -67,37 +69,59 @@ except Exception as ex:
 
 if args["--list-accounts"]:
     accounts = sorted([
-        s for s in config.sections() \
-            if s != "pass-rotate" and pass_rotate.get_provider_class(config[s].get("domain") or s)
-        ])
+        s for s in config.sections()
+        if s != "pass-rotate" and pass_rotate.get_provider_class(config[s].get("domain") or s)
+    ])
     [print(a) for a in accounts]
     sys.exit()
 
-_get_password_cmd = config["pass-rotate"]["get-password"]
-_gen_password_cmd = config["pass-rotate"]["gen-password"]
+try:
+    _get_password_cmd = config["pass-rotate"]["get-password"]
+except KeyError:
+    print('No get-password in config, will ask for it')
+    _get_password_cmd = None
+
+try:
+    _gen_password_cmd = config["pass-rotate"]["gen-password"]
+except KeyError:
+    print('No gen-password in config, will ask for it')
+    _gen_password_cmd = None
+
 
 def get_password(account):
-    env = os.environ
-    env.update({ "ACCOUNT": account })
-    subp = subprocess.run([_get_password_cmd],
-            shell=True, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if subp.returncode != 0:
-        raise Exception("get_password command exited with nonzero status code")
-    return subp.stdout.decode().strip()
+    if not _get_password_cmd:
+        sys.stderr.flush()
+        return getpass(f'\n\tCurrent password for {account}: ')
+    else:
+        env = os.environ
+        env.update({"ACCOUNT": account})
+        subp = subprocess.run([_get_password_cmd],
+                              shell=True, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if subp.returncode != 0:
+            raise Exception("get_password command exited with nonzero status code")
+        return subp.stdout.decode().strip()
+
 
 def gen_password(account):
-    env = os.environ
-    env.update({ "ACCOUNT": account })
-    subp = subprocess.run([_gen_password_cmd],
-            shell=True, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if subp.returncode != 0:
-        raise Exception("gen_password command exited with nonzero status code")
-    return get_password(account)
+    if not _get_password_cmd:
+        sys.stderr.write("")
+        sys.stderr.flush()
+        return getpass(f'\n\tNew password for {account} (be careful, no confirmation): ')
+    else:
+        env = os.environ
+        env.update({"ACCOUNT": account})
+        subp = subprocess.run([_gen_password_cmd],
+                              shell=True, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if subp.returncode != 0:
+            raise Exception("gen_password command exited with nonzero status code")
+        return get_password(account)
+
 
 def custom_prompt(prompt, prompt_type):
     return getpass(prompt="\n  " + prompt + ": ")
+
 
 pass_rotate.set_prompt(custom_prompt)
 
