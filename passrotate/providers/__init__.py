@@ -15,3 +15,4 @@ from passrotate.providers.ankiweb import AnkiWeb
 from passrotate.providers.gitlab import GitLab
 from passrotate.providers.wikipedia import Wikipedia
 from passrotate.providers.aur import ArchUserRepository
+from passrotate.providers.utc_cas import CasUTC
